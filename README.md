@@ -124,6 +124,3 @@ The included `Dockerfile` produces a standalone Next.js build. Use `docker compo
 5. Set up email delivery for invitations (SMTP/SendGrid/Resend)
 6. Configure backups
 
-## License
-
-MIT
