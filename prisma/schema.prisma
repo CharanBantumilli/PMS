@@ -1,0 +1,1190 @@
+// PMS SaaS - Multi-tenant Property Management System
+// PostgreSQL schema with row-level multi-tenancy via organizationId
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum SubscriptionPlan {
+  STARTER
+  PROFESSIONAL
+  ENTERPRISE
+}
+
+enum SubscriptionStatus {
+  TRIAL
+  ACTIVE
+  PAST_DUE
+  CANCELED
+  EXPIRED
+}
+
+enum OrganizationRole {
+  OWNER
+  ADMIN
+  MANAGER
+  RECEPTIONIST
+  HOUSEKEEPER
+  ACCOUNTANT
+}
+
+enum UserStatus {
+  ACTIVE
+  INVITED
+  SUSPENDED
+}
+
+enum PropertyType {
+  HOTEL
+  HOSTEL
+  APARTMENT
+  VILLA
+  RESORT
+  BED_BREAKFAST
+  VACATION_RENTAL
+  BOUTIQUE
+}
+
+enum UnitStatus {
+  VACANT_CLEAN
+  VACANT_DIRTY
+  OCCUPIED_CLEAN
+  OCCUPIED_DIRTY
+  INSPECTION
+  OUT_OF_ORDER
+  OUT_OF_SERVICE
+}
+
+enum UnitType {
+  STANDARD
+  DELUXE
+  SUITE
+  FAMILY
+  STUDIO
+  PENTHOUSE
+  DORM_BED
+  ENTIRE_PLACE
+  PRIVATE_ROOM
+  SHARED_ROOM
+}
+
+enum BedType {
+  SINGLE
+  DOUBLE
+  QUEEN
+  KING
+  TWIN
+  BUNK
+  SOFA_BED
+  NONE
+}
+
+enum BookingStatus {
+  PENDING
+  CONFIRMED
+  CHECKED_IN
+  CHECKED_OUT
+  CANCELED
+  NO_SHOW
+}
+
+enum BookingSource {
+  DIRECT
+  WALK_IN
+  PHONE
+  EMAIL
+  BOOKING_COM
+  AIRBNB
+  EXPEDIA
+  AGODA
+  VRBO
+  OTHER
+}
+
+enum PaymentMethod {
+  CASH
+  CARD
+  UPI
+  NETBANKING
+  BANK_TRANSFER
+  CHEQUE
+  PAYPAL
+  STRIPE
+  OTHER
+}
+
+enum PaymentStatus {
+  PENDING
+  PAID
+  PARTIAL
+  REFUNDED
+  FAILED
+}
+
+enum InvoiceStatus {
+  DRAFT
+  SENT
+  PAID
+  PARTIAL
+  OVERDUE
+  VOID
+}
+
+enum HousekeepingStatus {
+  PENDING
+  IN_PROGRESS
+  COMPLETED
+  INSPECTED
+  FAILED
+}
+
+enum HousekeepingTaskType {
+  FULL_CLEAN
+  TOUCH_UP
+  TURNDOWN
+  INSPECTION
+  LINEN_CHANGE
+  RESTOCK
+}
+
+enum MaintenanceStatus {
+  OPEN
+  ASSIGNED
+  IN_PROGRESS
+  AWAITING_PARTS
+  COMPLETED
+  CANCELED
+}
+
+enum MaintenancePriority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+enum ExpenseCategory {
+  UTILITIES
+  SUPPLIES
+  MAINTENANCE
+  SALARY
+  MARKETING
+  TAX
+  INSURANCE
+  FOOD_BEVERAGE
+  OTHER
+}
+
+enum ActivityAction {
+  CREATE
+  UPDATE
+  DELETE
+  LOGIN
+  LOGOUT
+  INVITE
+  BOOKING_CREATE
+  BOOKING_UPDATE
+  CHECK_IN
+  CHECK_OUT
+  PAYMENT_RECEIVED
+  INVOICE_SENT
+}
+
+// ========== Multi-tenant Core ==========
+
+model Organization {
+  id                String   @id @default(cuid())
+  name              String
+  slug              String   @unique
+  legalName         String?
+  taxId             String?
+  email             String
+  phone             String?
+  website           String?
+  logo              String?
+  addressLine1      String?
+  addressLine2      String?
+  city              String?
+  state             String?
+  postalCode        String?
+  country           String?  @default("US")
+  currency          String   @default("INR")
+  timezone          String   @default("UTC")
+  locale            String   @default("en")
+  checkInTime       String   @default("15:00")
+  checkOutTime      String   @default("11:00")
+  plan              SubscriptionPlan @default(STARTER)
+  planStatus        SubscriptionStatus @default(TRIAL)
+  trialEndsAt       DateTime?
+  currentPeriodEnd  DateTime?
+  stripeCustomerId  String?  @unique
+  stripeSubscriptionId String? @unique
+  primaryColor      String?  @default("#0f172a")
+  brandName         String?
+  maxProperties     Int      @default(1)
+  maxUsers          Int      @default(5)
+  maxUnits          Int      @default(50)
+  isActive          Boolean  @default(true)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  users             User[]
+  properties        Property[]
+  units             Unit[]
+  guests            Guest[]
+  bookings          Booking[]
+  invoices          Invoice[]
+  payments          Payment[]
+  expenses          Expense[]
+  staffTasks        HousekeepingTask[]
+  maintenanceTickets MaintenanceTicket[]
+  ratePlans         RatePlan[]
+  amenityCatalog    Amenity[]
+  unitTypes         UnitTypeDefinition[]
+  extraServices     ExtraService[]
+  taxRules          TaxRule[]
+  paymentMethods    PaymentMethodConfig[]
+  activities        ActivityLog[]
+  invitations       Invitation[]
+  documents         Document[]
+  notes             Note[]
+  notifications     Notification[]
+  // Channel management
+  channels          Channel[]
+  channelMappings   ChannelMapping[]
+  // Rate management
+  rateRestrictions  RateRestriction[]
+  seasonalRates     SeasonalRate[]
+  // Integrations
+  apiKeys           ApiKey[]
+  webhooks          Webhook[]
+  webhookDeliveries WebhookDelivery[]
+  integrations      IntegrationConfig[]
+  // Security
+  twoFactorSecrets  TwoFactorSecret[]
+  activeSessions    UserSession[]
+  // Deposits
+  deposits          Deposit[]
+
+  @@index([slug])
+}
+
+model User {
+  id             String   @id @default(cuid())
+  email          String   @unique
+  name           String?
+  hashedPassword String?
+  image          String?
+  emailVerified  DateTime?
+  phone          String?
+  status         UserStatus @default(ACTIVE)
+  // global flag – true only for platform staff
+  isSuperAdmin   Boolean  @default(false)
+  lastLoginAt    DateTime?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organizationId String?
+  role           OrganizationRole @default(MANAGER)
+
+  organization   Organization? @relation(fields: [organizationId], references: [id], onDelete: SetNull)
+  accounts       Account[]
+  sessions       Session[]
+  bookings       Booking[]    @relation("BookingCreator")
+  housekeeping   HousekeepingTask[] @relation("TaskAssignee")
+  housekeepingCreated HousekeepingTask[] @relation("TaskCreator")
+  maintenance    MaintenanceTicket[] @relation("TicketAssignee")
+  maintenanceCreated MaintenanceTicket[] @relation("TicketCreator")
+  activities     ActivityLog[]
+  sentInvitations Invitation[] @relation("InvitationSender")
+
+  @@index([organizationId])
+  @@index([email])
+}
+
+// ========== NextAuth (Auth.js) ==========
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+model Invitation {
+  id             String   @id @default(cuid())
+  email          String
+  role           OrganizationRole @default(MANAGER)
+  organizationId String
+  token          String   @unique
+  expiresAt      DateTime
+  acceptedAt     DateTime?
+  createdAt      DateTime @default(now())
+
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  sender         User?  @relation("InvitationSender", fields: [senderId], references: [id])
+  senderId       String?
+
+  @@index([organizationId])
+  @@index([email])
+}
+
+// ========== Property / Unit Catalog ==========
+
+model Property {
+  id              String       @id @default(cuid())
+  organizationId  String
+  name            String
+  code            String
+  type            PropertyType
+  description     String?      @db.Text
+  starRating      Int?
+  addressLine1    String?
+  addressLine2    String?
+  city            String?
+  state           String?
+  postalCode      String?
+  country         String?      @default("US")
+  latitude        Float?
+  longitude       Float?
+  phone           String?
+  email           String?
+  checkInTime     String?      @default("15:00")
+  checkOutTime    String?      @default("11:00")
+  policies        String?      @db.Text
+  amenities       String[]
+  images          String[]
+  isActive        Boolean      @default(true)
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+
+  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  units           Unit[]
+  ratePlans       RatePlan[]
+  bookings        Booking[]
+
+  @@unique([organizationId, code])
+  @@index([organizationId])
+}
+
+model UnitTypeDefinition {
+  id             String   @id @default(cuid())
+  organizationId String
+  name           String
+  description    String?
+  baseOccupancy  Int      @default(2)
+  maxOccupancy   Int      @default(2)
+  basePrice      Decimal  @db.Decimal(10, 2)
+  extraPersonFee Decimal? @db.Decimal(10, 2)
+  size           Float?
+  bedType        BedType  @default(QUEEN)
+  bedCount       Int      @default(1)
+  bathroomCount  Int      @default(1)
+  amenities      String[]
+
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  units          Unit[]
+
+  @@index([organizationId])
+}
+
+model Unit {
+  id              String   @id @default(cuid())
+  organizationId  String
+  propertyId      String
+  unitTypeId      String?
+  name            String
+  number          String
+  floor           String?
+  status          UnitStatus @default(VACANT_CLEAN)
+  notes           String?  @db.Text
+  images          String[]
+  isActive        Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  property        Property     @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  unitType        UnitTypeDefinition? @relation(fields: [unitTypeId], references: [id], onDelete: SetNull)
+  bookings        Booking[]
+  housekeeping    HousekeepingTask[]
+  maintenance     MaintenanceTicket[]
+
+  @@unique([propertyId, number])
+  @@index([organizationId])
+  @@index([propertyId])
+  @@index([status])
+}
+
+model Amenity {
+  id             String   @id @default(cuid())
+  organizationId String?
+  name           String
+  icon           String?
+  category       String?
+  isGlobal       Boolean  @default(false)
+
+  organization   Organization? @relation(fields: [organizationId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId])
+}
+
+model RatePlan {
+  id              String   @id @default(cuid())
+  organizationId  String
+  propertyId      String?
+  name            String
+  description     String?
+  basePrice       Decimal  @db.Decimal(10, 2)
+  currency        String   @default("INR")
+  isDynamic       Boolean  @default(false)
+  weekendMultiplier Decimal? @db.Decimal(4, 2)
+  minStay         Int      @default(1)
+  maxStay         Int?
+  isRefundable    Boolean  @default(true)
+  mealsIncluded   String?  // none, breakfast, half-board, full-board, all-inclusive
+  isActive        Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  property        Property?    @relation(fields: [propertyId], references: [id], onDelete: SetNull)
+  bookings        Booking[]
+
+  @@index([organizationId])
+}
+
+model ExtraService {
+  id             String   @id @default(cuid())
+  organizationId String
+  name           String
+  description    String?
+  price          Decimal  @db.Decimal(10, 2)
+  unit           String   @default("per service")
+  isActive       Boolean  @default(true)
+
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  bookingItems   BookingExtra[]
+
+  @@index([organizationId])
+}
+
+model TaxRule {
+  id             String   @id @default(cuid())
+  organizationId String
+  name           String
+  rate           Decimal  @db.Decimal(5, 2)
+  isInclusive    Boolean  @default(false)
+  isActive       Boolean  @default(true)
+
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+}
+
+model PaymentMethodConfig {
+  id             String   @id @default(cuid())
+  organizationId String
+  name           String
+  type           PaymentMethod
+  isActive       Boolean  @default(true)
+  instructions   String?
+
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+}
+
+// ========== Guests / Bookings ==========
+
+model Guest {
+  id              String   @id @default(cuid())
+  organizationId  String
+  firstName       String
+  lastName        String
+  email           String?
+  phone           String?
+  address         String?
+  city            String?
+  country         String?
+  idType          String?
+  idNumber        String?
+  dateOfBirth     DateTime?
+  nationality     String?
+  vipLevel        Int      @default(0)
+  marketingOptIn  Boolean  @default(false)
+  notes           String?  @db.Text
+  totalStays      Int      @default(0)
+  totalSpent      Decimal  @default(0) @db.Decimal(12, 2)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  bookings        Booking[]
+
+  @@index([organizationId])
+  @@index([email])
+  @@index([lastName, firstName])
+}
+
+model Booking {
+  id              String   @id @default(cuid())
+  organizationId  String
+  propertyId      String
+  unitId          String?
+  guestId         String
+  ratePlanId      String?
+  createdById     String?
+
+  confirmationCode String  @unique
+  status          BookingStatus @default(PENDING)
+  source          BookingSource @default(DIRECT)
+
+  arrivalDate     DateTime @db.Date
+  departureDate   DateTime @db.Date
+  nights          Int
+  adults          Int      @default(1)
+  children        Int      @default(0)
+  infants         Int      @default(0)
+  pets            Int      @default(0)
+
+  unitRate        Decimal  @db.Decimal(10, 2)
+  totalAmount     Decimal  @db.Decimal(12, 2)
+  taxAmount       Decimal  @default(0) @db.Decimal(12, 2)
+  discount        Decimal  @default(0) @db.Decimal(12, 2)
+  paidAmount      Decimal  @default(0) @db.Decimal(12, 2)
+  balance         Decimal  @default(0) @db.Decimal(12, 2)
+  currency        String   @default("INR")
+
+  specialRequests String?  @db.Text
+  internalNotes   String?  @db.Text
+  checkedInAt     DateTime?
+  checkedOutAt    DateTime?
+  canceledAt      DateTime?
+  cancellationReason String?
+
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  property        Property     @relation(fields: [propertyId], references: [id])
+  unit            Unit?        @relation(fields: [unitId], references: [id])
+  guest           Guest        @relation(fields: [guestId], references: [id])
+  ratePlan        RatePlan?    @relation(fields: [ratePlanId], references: [id])
+  createdBy       User?        @relation("BookingCreator", fields: [createdById], references: [id])
+  extras          BookingExtra[]
+  invoice         Invoice?
+  payments        Payment[]
+  housekeeping    HousekeepingTask[]
+
+  @@index([organizationId])
+  @@index([propertyId])
+  @@index([unitId])
+  @@index([guestId])
+  @@index([arrivalDate, departureDate])
+  @@index([status])
+}
+
+model BookingExtra {
+  id          String   @id @default(cuid())
+  bookingId   String
+  serviceId   String
+  quantity    Int      @default(1)
+  unitPrice   Decimal  @db.Decimal(10, 2)
+  totalPrice  Decimal  @db.Decimal(10, 2)
+  notes       String?
+
+  booking     Booking      @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  service     ExtraService @relation(fields: [serviceId], references: [id])
+
+  @@index([bookingId])
+}
+
+// ========== Finance ==========
+
+model Invoice {
+  id              String   @id @default(cuid())
+  organizationId  String
+  bookingId       String?  @unique
+  invoiceNumber   String
+  status          InvoiceStatus @default(DRAFT)
+  issueDate       DateTime @db.Date
+  dueDate         DateTime @db.Date
+
+  subtotal        Decimal  @db.Decimal(12, 2)
+  taxAmount       Decimal  @default(0) @db.Decimal(12, 2)
+  discount        Decimal  @default(0) @db.Decimal(12, 2)
+  total           Decimal  @db.Decimal(12, 2)
+  paidAmount      Decimal  @default(0) @db.Decimal(12, 2)
+  balance         Decimal  @db.Decimal(12, 2)
+  currency        String   @default("INR")
+  notes           String?  @db.Text
+
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  booking         Booking?     @relation(fields: [bookingId], references: [id], onDelete: SetNull)
+  payments        Payment[]
+  items           InvoiceItem[]
+
+  @@unique([organizationId, invoiceNumber])
+  @@index([organizationId])
+  @@index([status])
+}
+
+model InvoiceItem {
+  id          String   @id @default(cuid())
+  invoiceId   String
+  description String
+  quantity    Decimal  @db.Decimal(10, 2)
+  unitPrice   Decimal  @db.Decimal(10, 2)
+  taxRate     Decimal  @default(0) @db.Decimal(5, 2)
+  total       Decimal  @db.Decimal(12, 2)
+
+  invoice     Invoice  @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+
+  @@index([invoiceId])
+}
+
+model Payment {
+  id              String   @id @default(cuid())
+  organizationId  String
+  invoiceId       String?
+  bookingId       String?
+  amount          Decimal  @db.Decimal(12, 2)
+  currency        String   @default("INR")
+  method          PaymentMethod
+  status          PaymentStatus @default(PENDING)
+  reference       String?
+  paidAt          DateTime?
+  notes           String?
+  createdAt       DateTime @default(now())
+
+  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  invoice         Invoice?     @relation(fields: [invoiceId], references: [id], onDelete: SetNull)
+  booking         Booking?     @relation(fields: [bookingId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId])
+  @@index([invoiceId])
+  @@index([status])
+}
+
+model Expense {
+  id              String   @id @default(cuid())
+  organizationId  String
+  category        ExpenseCategory
+  description     String
+  amount          Decimal  @db.Decimal(12, 2)
+  currency        String   @default("INR")
+  vendor          String?
+  receiptUrl      String?
+  expenseDate     DateTime @db.Date
+  notes           String?
+  createdAt       DateTime @default(now())
+
+  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+  @@index([expenseDate])
+}
+
+// ========== Operations ==========
+
+model HousekeepingTask {
+  id              String   @id @default(cuid())
+  organizationId  String
+  propertyId      String
+  unitId          String
+  bookingId       String?
+  type            HousekeepingTaskType @default(FULL_CLEAN)
+  status          HousekeepingStatus @default(PENDING)
+  priority        Int      @default(5)
+  assigneeId      String?
+  createdById     String?
+  scheduledFor    DateTime?
+  startedAt       DateTime?
+  completedAt     DateTime?
+  duration        Int?     // minutes
+  notes           String?  @db.Text
+  inspectionNotes String?  @db.Text
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  unit            Unit     @relation(fields: [unitId], references: [id], onDelete: Cascade)
+  booking         Booking? @relation(fields: [bookingId], references: [id], onDelete: SetNull)
+  assignee        User?    @relation("TaskAssignee", fields: [assigneeId], references: [id])
+  createdBy       User?    @relation("TaskCreator", fields: [createdById], references: [id])
+
+  @@index([organizationId])
+  @@index([unitId])
+  @@index([status])
+  @@index([scheduledFor])
+}
+
+model MaintenanceTicket {
+  id              String   @id @default(cuid())
+  organizationId  String
+  unitId          String
+  title           String
+  description     String   @db.Text
+  priority        MaintenancePriority @default(MEDIUM)
+  status          MaintenanceStatus @default(OPEN)
+  category        String?
+  assigneeId      String?
+  createdById     String?
+  estimatedCost   Decimal? @db.Decimal(10, 2)
+  actualCost      Decimal? @db.Decimal(10, 2)
+  scheduledFor    DateTime?
+  completedAt     DateTime?
+  notes           String?  @db.Text
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  unit            Unit     @relation(fields: [unitId], references: [id], onDelete: Cascade)
+  assignee        User?    @relation("TicketAssignee", fields: [assigneeId], references: [id])
+  createdBy       User?    @relation("TicketCreator", fields: [createdById], references: [id])
+
+  @@index([organizationId])
+  @@index([status])
+  @@index([unitId])
+}
+
+// ========== Activity / Audit / Misc ==========
+
+model ActivityLog {
+  id              String   @id @default(cuid())
+  organizationId  String
+  userId          String?
+  action          ActivityAction
+  entity          String
+  entityId        String?
+  description     String
+  metadata        Json?
+  createdAt       DateTime @default(now())
+
+  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user            User?         @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId, createdAt])
+  @@index([entity, entityId])
+}
+
+model Document {
+  id              String   @id @default(cuid())
+  organizationId  String
+  name            String
+  url             String
+  type            String?
+  size            Int?
+  uploadedById    String?
+  createdAt       DateTime @default(now())
+
+  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+}
+
+model Note {
+  id              String   @id @default(cuid())
+  organizationId  String
+  content         String   @db.Text
+  entityType      String
+  entityId        String
+  createdById     String?
+  createdAt       DateTime @default(now())
+
+  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, entityType, entityId])
+}
+
+// ========== Channel Management ==========
+
+enum ChannelType {
+  BOOKING_COM
+  AIRBNB
+  EXPEDIA
+  AGODA
+  VRBO
+  HOTELS_COM
+  CUSTOM_ICAL
+  CUSTOM_API
+}
+
+enum ChannelStatus {
+  ACTIVE
+  PAUSED
+  ERROR
+  DISCONNECTED
+}
+
+model Channel {
+  id              String   @id @default(cuid())
+  organizationId  String
+  name            String
+  type            ChannelType
+  status          ChannelStatus @default(ACTIVE)
+  apiKey          String?
+  apiSecret       String?
+  propertyId      String?
+  syncUrl         String?
+  lastSyncAt      DateTime?
+  lastSyncStatus  String?
+  errorCount      Int      @default(0)
+  markup          Float    @default(0)
+  isEnabled       Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  mappings        ChannelMapping[]
+  syncLogs        ChannelSyncLog[]
+
+  @@index([organizationId])
+}
+
+model ChannelMapping {
+  id              String   @id @default(cuid())
+  organizationId  String
+  channelId       String
+  unitId          String
+  externalId      String
+  externalName    String?
+  lastSyncedAt    DateTime?
+  isActive        Boolean  @default(true)
+  createdAt       DateTime @default(now())
+
+  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  channel         Channel @relation(fields: [channelId], references: [id], onDelete: Cascade)
+
+  @@unique([channelId, externalId])
+  @@index([organizationId])
+  @@index([unitId])
+}
+
+model ChannelSyncLog {
+  id              String   @id @default(cuid())
+  channelId       String
+  action          String
+  entity          String
+  entityId        String?
+  status          String
+  message         String?  @db.Text
+  payload         Json?
+  createdAt       DateTime @default(now())
+
+  channel         Channel @relation(fields: [channelId], references: [id], onDelete: Cascade)
+
+  @@index([channelId, createdAt])
+}
+
+// ========== Rate & Revenue Management ==========
+
+model SeasonalRate {
+  id              String   @id @default(cuid())
+  organizationId  String
+  propertyId      String?
+  ratePlanId      String
+  name            String
+  startDate       DateTime @db.Date
+  endDate         DateTime @db.Date
+  price           Decimal  @db.Decimal(10, 2)
+  currency        String   @default("INR")
+  priority        Int      @default(0)
+  isActive        Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+  @@index([propertyId, startDate, endDate])
+}
+
+model RateRestriction {
+  id              String   @id @default(cuid())
+  organizationId  String
+  propertyId      String?
+  ratePlanId      String?
+  restrictionType String
+  startDate       DateTime @db.Date
+  endDate         DateTime @db.Date
+  daysOfWeek      Int[]    @default([])
+  minLOS          Int?
+  maxLOS          Int?
+  closedToArrival Boolean  @default(false)
+  closedToDeparture Boolean @default(false)
+  minAdvance      Int?
+  maxAdvance      Int?
+  isActive        Boolean  @default(true)
+  createdAt       DateTime @default(now())
+
+  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+  @@index([startDate, endDate])
+}
+
+// ========== Deposits ==========
+
+enum DepositStatus {
+  PENDING
+  COLLECTED
+  REFUNDED
+  FORFEITED
+  APPLIED
+}
+
+model Deposit {
+  id              String   @id @default(cuid())
+  organizationId  String
+  bookingId       String
+  amount          Decimal  @db.Decimal(12, 2)
+  currency        String   @default("INR")
+  dueDate         DateTime? @db.Date
+  status          DepositStatus @default(PENDING)
+  paymentId       String?
+  refundedAmount  Decimal  @default(0) @db.Decimal(12, 2)
+  notes           String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+  @@index([bookingId])
+  @@index([status])
+}
+
+// ========== Integrations ==========
+
+enum IntegrationType {
+  STRIPE
+  SMTP
+  TWILIO
+  WHATSAPP
+  QUICKBOOKS
+  XERO
+  SLACK
+  ZAPIER
+  CUSTOM_WEBHOOK
+}
+
+model IntegrationConfig {
+  id              String   @id @default(cuid())
+  organizationId  String
+  type            IntegrationType
+  name            String
+  config          Json
+  isEnabled       Boolean  @default(true)
+  lastSyncAt      DateTime?
+  errorMessage    String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, type])
+  @@index([organizationId])
+}
+
+model ApiKey {
+  id              String   @id @default(cuid())
+  organizationId  String
+  name            String
+  key             String   @unique
+  prefix          String
+  scopes          String[] @default([])
+  lastUsedAt      DateTime?
+  expiresAt       DateTime?
+  createdById     String?
+  createdAt       DateTime @default(now())
+  isActive        Boolean  @default(true)
+
+  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+  @@index([key])
+}
+
+model Webhook {
+  id              String   @id @default(cuid())
+  organizationId  String
+  name            String
+  url             String
+  secret          String
+  events          String[]
+  isActive        Boolean  @default(true)
+  createdById     String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  deliveries      WebhookDelivery[]
+
+  @@index([organizationId])
+}
+
+model WebhookDelivery {
+  id              String   @id @default(cuid())
+  organizationId  String
+  webhookId       String
+  event           String
+  payload         Json
+  response        Int?
+  responseBody    String?  @db.Text
+  status          String
+  attempt         Int      @default(1)
+  duration        Int?
+  errorMessage    String?
+  createdAt       DateTime @default(now())
+
+  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  webhook         Webhook @relation(fields: [webhookId], references: [id], onDelete: Cascade)
+
+  @@index([webhookId, createdAt])
+  @@index([organizationId, createdAt])
+}
+
+// ========== Security ==========
+
+model TwoFactorSecret {
+  id              String   @id @default(cuid())
+  organizationId  String
+  userId          String   @unique
+  secret          String
+  isEnabled       Boolean  @default(false)
+  backupCodes     String[]
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+}
+
+model UserSession {
+  id              String   @id @default(cuid())
+  organizationId  String
+  userId          String
+  sessionToken    String   @unique
+  ipAddress       String?
+  userAgent       String?  @db.Text
+  device          String?
+  location        String?
+  isActive        Boolean  @default(true)
+  lastActiveAt    DateTime @default(now())
+  expiresAt       DateTime
+  createdAt       DateTime @default(now())
+
+  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([sessionToken])
+  @@index([organizationId])
+}
+
+// ========== Notifications ==========
+
+enum NotificationType {
+  BOOKING_NEW
+  BOOKING_CANCELLED
+  CHECK_IN
+  CHECK_OUT
+  PAYMENT_RECEIVED
+  PAYMENT_FAILED
+  INVOICE_SENT
+  INVOICE_OVERDUE
+  HOUSEKEEPING_ASSIGNED
+  HOUSEKEEPING_COMPLETED
+  MAINTENANCE_NEW
+  MAINTENANCE_URGENT
+  GUEST_NEW
+  STAFF_INVITED
+  CHANNEL_ERROR
+  WEBHOOK_FAILED
+  PAYMENT_METHOD_FAILED
+  SUBSCRIPTION_EXPIRING
+  LOW_OCCUPANCY
+  SYSTEM
+}
+
+enum NotificationPriority {
+  LOW
+  NORMAL
+  HIGH
+  URGENT
+}
+
+model Notification {
+  id              String   @id @default(cuid())
+  organizationId  String
+  userId          String
+  type            NotificationType
+  priority        NotificationPriority @default(NORMAL)
+  title           String
+  message         String   @db.Text
+  entity          String?
+  entityId        String?
+  actionUrl       String?
+  metadata        Json?
+  isRead          Boolean  @default(false)
+  readAt          DateTime?
+  createdAt       DateTime @default(now())
+  expiresAt       DateTime?
+
+  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, createdAt])
+  @@index([userId, isRead, createdAt])
+  @@index([organizationId, type])
+}
+
+model NotificationPreference {
+  id              String   @id @default(cuid())
+  organizationId  String
+  userId          String
+  type            NotificationType
+  inApp           Boolean  @default(true)
+  email           Boolean  @default(false)
+  sms             Boolean  @default(false)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@unique([userId, type])
+  @@index([userId])
+}
