@@ -181,17 +181,6 @@ npm run build
 npm start
 ```
 
-### Production Checklist
-
-- [ ] Set a strong `NEXTAUTH_SECRET` (run `openssl rand -base64 32` on macOS/Linux, or use https://generate-secret.vercel.app/32)
-- [ ] Use a managed PostgreSQL (RDS, Supabase, Neon)
-- [ ] Put behind HTTPS (Caddy, Nginx, Cloudflare)
-- [ ] Configure Razorpay for payments
-- [ ] Set up SMTP for email delivery
-- [ ] Set up database backups
-
----
-
 ## Commands
 
 ```bash
